@@ -13,6 +13,7 @@
   input,select,button{padding:.5rem;border-radius:.5rem;border:1px solid #2a3358;background:#0f1631;color:#e8eef6}
   button{background:#1a2340;cursor:pointer}
   #cy{height:60vh;border:1px solid #232c4b;border-radius:12px;margin-top:1rem;background:#0b1020}
+  .note{font-size:.85rem;color:#9fb0c6}
 </style>
 <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.umd.min.js"></script>
 <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
@@ -40,6 +41,7 @@
       </select>
       <input id="personImage" type="file" accept="image/*" />
       <button id="addPersonBtn">Spara person</button>
+      <div class="note">Namn måste vara unikt (skiljer på stora/små bokstäver ignoreras).</div>
     </div>
 
     <h2>Lägg till relation</h2>
@@ -56,10 +58,10 @@
       <button id="addRelBtn" disabled>Spara relation</button>
     </div>
 
-<div id="cy"></div>
+    <div id="cy"></div>
 
-<h3>Relationer (översikt)</h3>
-<div id="relationsList" class="row" style="font-size:.9rem;opacity:.9"></div>
+    <h3>Relationer (översikt)</h3>
+    <div id="relationsList" class="row" style="font-size:.9rem;opacity:.9"></div>
   </div>
 </div>
 
@@ -78,6 +80,13 @@ function saveData(){ localStorage.setItem(LS_KEY_DATA, JSON.stringify(data)); }
 function uid(){ return 'p_'+Math.random().toString(36).slice(2,10); }
 function fileToDataURL(file){ return new Promise(res=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(file); }); }
 
+// ---- Register dagre layout (säkerställ att pluginen är aktiv) ----
+try{
+  if (window.cytoscape && window.cytoscapeDagre && window.cytoscape.use) {
+    window.cytoscape.use(window.cytoscapeDagre);
+  }
+}catch(e){ console.warn('Kunde inte registrera cytoscape-dagre', e); }
+
 // ---- Login ----
 $('#loginBtn').onclick=()=>{
   if($('#username').value===DEFAULT_USER && $('#password').value===DEFAULT_PASS){
@@ -94,6 +103,7 @@ function initApp(){
   mountSelects();
   buildGraph();
   updateRelationUIState();
+  renderRelations();
 }
 
 // ---- UI state ----
@@ -105,26 +115,18 @@ function mountSelects(){
   $('#relB').innerHTML = '<option value="">– välj person –</option>' + opts;
 }
 
-function updateRelationUIState() {
+function updateRelationUIState(){
   const has2 = Object.keys(data.people).length >= 2;
-
   const a = document.getElementById('relA').value;
   const b = document.getElementById('relB').value;
   const both = !!a && !!b && a !== b;
-
-  // Visa blocket nedtonat om <2 personer, men låt det vara klickbart
   const cont = document.getElementById('relationContainer');
   cont.classList.toggle('disabled', !has2);
-
-  // Enda spärren som verkligen behövs är på knappen
   document.getElementById('addRelBtn').disabled = !has2 || !both;
 }
-
-// Koppla lyssnare direkt på fälten (säkrast)
-document.getElementById('relA').addEventListener('change', updateRelationUIState);
-document.getElementById('relB').addEventListener('change', updateRelationUIState);
-document.getElementById('relType').addEventListener('change', updateRelationUIState);
-
+['relA','relB','relType'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', updateRelationUIState);
+});
 
 // ---- Person ----
 $('#addPersonBtn').onclick = async ()=>{
@@ -132,6 +134,10 @@ $('#addPersonBtn').onclick = async ()=>{
   const gender = $('#personGender').value;
   if(!name){ alert('Ange namn'); return; }
   if(!gender){ alert('Välj kön'); return; }
+  // Unikt namn (case-insensitivt)
+  const exists = Object.values(data.people).some(p=>p.name.trim().toLowerCase()===name.toLowerCase());
+  if(exists){ alert('Det finns redan en person med det namnet.'); return; }
+
   let photoDataUrl='';
   const f = $('#personImage').files?.[0];
   if(f) photoDataUrl = await fileToDataURL(f);
@@ -156,11 +162,9 @@ $('#addRelBtn').onclick = () => {
 
   let parentId, childId, edgeLabel = '';
   if (type === 'father' || type === 'mother') {
-    parentId = a; childId = b;
-    edgeLabel = (type === 'father') ? 'far' : 'mor';
+    parentId = a; childId = b; edgeLabel = (type === 'father') ? 'far' : 'mor';
   } else {
-    parentId = b; childId = a;
-    edgeLabel = 'förälder';
+    parentId = b; childId = a; edgeLabel = 'förälder';
   }
 
   // Sätt kön där det är logiskt
@@ -198,7 +202,6 @@ $('#addRelBtn').onclick = () => {
   }
 };
 
-
 // ---- Graph ----
 function buildGraph(){
   const elements=[];
@@ -219,19 +222,18 @@ function buildGraph(){
       {selector:'node.other',  style:{'border-color':'#ffcc66','background-color':'#2a1f0e'}},
       {selector:'node.unknown',style:{'border-color':'#5cc8ff','background-color':'#11203a'}},
       {selector:'edge', style:{
-  'width':2,
-  'line-color':'#6b7da6',
-  'target-arrow-color':'#6b7da6',
-  'target-arrow-shape':'triangle',
-  'curve-style':'bezier',
-  'control-point-step-size':40,
-  // Lägg till dessa fyra rader:
-  'label':'data(label)',
-  'font-size':10,
-  'text-rotation':'autorotate',
-  'text-outline-width':2,
-  'text-outline-color':'#0b1020'
-}},
+        'width':2,
+        'line-color':'#6b7da6',
+        'target-arrow-color':'#6b7da6',
+        'target-arrow-shape':'triangle',
+        'curve-style':'bezier',
+        'control-point-step-size':40,
+        'label':'data(label)',
+        'font-size':10,
+        'text-rotation':'autorotate',
+        'text-outline-width':2,
+        'text-outline-color':'#0b1020'
+      }},
       {selector:'edge[type="father"]', style:{ 'line-style':'solid' }},
       {selector:'edge[type="mother"]', style:{ 'line-style':'dashed' }},
     ],
@@ -241,6 +243,16 @@ function buildGraph(){
 function addNodeToGraph(p){ cy.add({ data:{ id:p.id, label:p.name, photo:p.photoDataUrl||'' }, classes:(p.gender||'unknown') }); layoutGraph(); }
 function addEdgeToGraph(r){ cy.add({ data:{ id:r.from+'=>'+r.to, source:r.from, target:r.to, type:r.type, label: r.label || '' } }); }
 function layoutGraph(){ cy.layout({ name:'dagre', rankDir:'TB', nodeSep:40, rankSep:80, edgeSep:20, animate:true, animationDuration:350 }).run(); }
+
+function renderRelations(){
+  const box = document.getElementById('relationsList');
+  if(!box) return;
+  if(!data.relations.length){ box.innerHTML = '<em>Inga relationer ännu.</em>'; return; }
+  const name = id=> (data.people[id]?.name || id);
+  box.innerHTML = '<ul style="margin:0;padding-left:1rem">' +
+    data.relations.map(r=>`<li>${name(r.from)} — <strong>${r.label||r.type}</strong> → ${name(r.to)}</li>`).join('') +
+  '</ul>';
+}
 
 // ---- Start ----
 (function start(){
