@@ -97,7 +97,6 @@
             <div class="two">
               <input id="personName" type="text" placeholder="Namn" />
               <select id="personGender">
-                <option value="unknown">Kön okänt</option>
                 <option value="female">Kvinna</option>
                 <option value="male">Man</option>
                 <option value="other">Annan</option>
@@ -126,7 +125,7 @@
               <select id="relB"></select>
             </div>
             <p class="hint" id="relHint">Välj två personer beroende på relationstyp. Ex: <em>far till</em> (A = far, B = barn). <em>son/dotter till</em> (A = barn, B = förälder).</p>
-            <button id="addRelBtn" class="btn">Lägg till relation</button>
+            <button id="addRelBtn" class="btn" disabled>Spara relation</button>
           </div>
 
           <div class="legend">
@@ -225,24 +224,30 @@
   function uid(){ return 'p_'+Math.random().toString(36).slice(2,10); }
 
   // Person hantering
-  $('#addPersonBtn').addEventListener('click', async () => {
-    const name = $('#personName').value.trim();
-    const gender = $('#personGender').value;
-    if(!name){ alert('Ange ett namn.'); return; }
-    let photoDataUrl = '';
-    const file = $('#personImage').files?.[0];
-    if(file){
-      photoDataUrl = await fileToDataURL(file);
-    }
-    const id = uid();
-    data.people[id] = { id, name, gender, photoDataUrl };
-    saveData(data);
-    $('#personName').value='';
-    $('#personImage').value='';
-    mountSelects();
-    addNodeToGraph(data.people[id]);
-    updateRelationUIState();
-  });
+document.getElementById('addPersonBtn').addEventListener('click', async () => {
+  const name = document.getElementById('personName').value.trim();
+  const gender = document.getElementById('personGender').value;
+  if (!name) { alert('Ange ett namn.'); return; }
+  if (!gender) { alert('Välj kön.'); return; }
+
+  let photoDataUrl = '';
+  const file = document.getElementById('personImage').files?.[0];
+  if (file) { photoDataUrl = await fileToDataURL(file); }
+
+  const id = uid();
+  data.people[id] = { id, name, gender, photoDataUrl };
+  saveData(data);
+
+  // reset inputs
+  document.getElementById('personName').value = '';
+  document.getElementById('personGender').value = '';
+  document.getElementById('personImage').value = '';
+
+  mountSelects();
+  addNodeToGraph(data.people[id]);
+  updateRelationUIState();
+  if (cy) cy.fit(undefined, 50);
+});
 
   function fileToDataURL(file){
     return new Promise((resolve,reject)=>{
@@ -263,56 +268,78 @@
     };
   }
 
-  function mountSelects(){
-    const opts = Object.values(loadData().people)
-      .sort((a,b)=>a.name.localeCompare(b.name))
-      .map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-    $('#relA').innerHTML = '<option value="">– välj –</option>' + opts;
-    $('#relB').innerHTML = '<option value="">– välj –</option>' + opts;
+function mountSelects(){
+  const opts = Object.values(loadData().people)
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  document.getElementById('relA').innerHTML = '<option value="">– välj –</option>' + opts;
+  document.getElementById('relB').innerHTML = '<option value="">– välj –</option>' + opts;
+  updateRelationUIState();
+}
+
+function updateRelationUIState(){
+  const count = Object.keys(data.people).length;
+  const container = document.getElementById('relationContainer');
+  const btn = document.getElementById('addRelBtn');
+  const hint = document.getElementById('relHint');
+  const a = document.getElementById('relA').value;
+  const b = document.getElementById('relB').value;
+  const bothSelected = a && b && a !== b;
+
+  if (count < 2) {
+    container.classList.add('disabled');
+    btn.disabled = true;
+    hint.textContent = 'Lägg till minst två personer för att skapa en relation.';
+  } else {
+    container.classList.remove('disabled');
+    btn.disabled = !bothSelected;
+    hint.innerHTML = 'Välj två personer beroende på relationstyp. Ex: <em>far till</em> (A = far, B = barn). <em>son/dotter till</em> (A = barn, B = förälder).';
+  }
+}
+
+document.getElementById('addRelBtn').addEventListener('click', () => {
+  const type = document.getElementById('relType').value;
+  const a = document.getElementById('relA').value;
+  const b = document.getElementById('relB').value;
+  if (!a || !b || a === b) { alert('Välj två olika personer.'); return; }
+
+  let parentId, childId;
+  if (type === 'father' || type === 'mother') {
+    parentId = a; childId = b;
+    if (type === 'father')  data.people[parentId].gender = 'male';
+    if (type === 'mother')  data.people[parentId].gender = 'female';
+  } else { // son|daughter
+    parentId = b; childId = a;
+    if (type === 'son')      data.people[childId].gender = 'male';
+    if (type === 'daughter') data.people[childId].gender = 'female';
   }
 
-  function updateRelationUIState(){
-    const count = Object.keys(data.people).length;
-    const container = $('#relationContainer');
-    const btn = $('#addRelBtn');
-    const hint = $('#relHint');
-    if(count < 2){
-      container.classList.add('disabled');
-      btn.disabled = true;
-      hint.textContent = 'Lägg till minst två personer för att skapa en relation.';
-    }else{
-      container.classList.remove('disabled');
-      btn.disabled = false;
-      hint.innerHTML = 'Välj två personer beroende på relationstyp. Ex: <em>far till</em> (A = far, B = barn). <em>son/dotter till</em> (A = barn, B = förälder).';
-    }
-  }
+  if (!data.relations.some(r=>r.from===parentId && r.to===childId)) {
+    const rType = (type==='father') ? 'father' : (type==='mother') ? 'mother' : 'parent';
+    data.relations.push({ from: parentId, to: childId, type: rType });
+    saveData(data);
 
-  $('#addRelBtn').addEventListener('click', () => {
-    const type = $('#relType').value; // father|mother|son|daughter
-    const a = $('#relA').value; // id
-    const b = $('#relB').value; // id
-    if(!a || !b || a===b){ alert('Välj två olika personer.'); return; }
-    let parentId, childId;
-    if(type==='father' || type==='mother'){
-      parentId = a; childId = b;
-      // sätt kön på föräldern om okänt
-      if(type==='father' && data.people[parentId].gender==='unknown') data.people[parentId].gender='male';
-      if(type==='mother' && data.people[parentId].gender==='unknown') data.people[parentId].gender='female';
-    } else { // son|daughter
-      parentId = b; childId = a;
-      // sätt kön på barnet
-      if(type==='son') data.people[childId].gender='male';
-      if(type==='daughter') data.people[childId].gender='female';
-    }
-    // Lägg kant (parent -> child) om den inte finns
-    if(!data.relations.some(r=>r.from===parentId && r.to===childId)){
-      const rType = (type==='father')?'father':(type==='mother')?'mother':'parent';
-      data.relations.push({from: parentId, to: childId, type: rType});
-      saveData(data);
-      addEdgeToGraph({from: parentId, to: childId, type: rType});
-      layoutGraph();
-    }
-  });
+    addEdgeToGraph({ from: parentId, to: childId, type: rType });
+
+    // uppdatera könsklass på noderna om vi satte kön via relationen
+    const parentEl = cy.getElementById(parentId);
+    const childEl  = cy.getElementById(childId);
+    if (parentEl) { parentEl.removeClass('male female other unknown'); parentEl.addClass(data.people[parentId].gender || 'unknown'); }
+    if (childEl)  { childEl.removeClass('male female other unknown');  childEl.addClass(data.people[childId].gender  || 'unknown'); }
+
+    layoutGraph();
+    cy.fit(undefined, 50);
+
+    // nollställ val
+    document.getElementById('relA').value = '';
+    document.getElementById('relB').value = '';
+    updateRelationUIState();
+
+    alert('Relation sparad.');
+  } else {
+    alert('Relationen finns redan.');
+  }
+});
 
   // Export/Import/Reset
   $('#exportBtn').addEventListener('click', () => {
@@ -349,9 +376,10 @@
     const people = Object.values(data.people);
     for(const p of people){
       elements.push({
-        data: { id: p.id, label: p.name, photo: p.photoDataUrl||'', gender: p.gender||'unknown' },
-        classes: p.gender
-      });
+  data: { id: p.id, label: p.name, photo: p.photoDataUrl||'', gender: p.gender||'unknown' },
+  classes: p.gender || 'unknown'
+});
+
     }
     for(const r of data.relations){
       elements.push({ data: { id: r.from+'=>'+r.to, source: r.from, target: r.to, type: r.type } });
