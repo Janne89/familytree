@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mitt Familjeträd</title>
+  <meta name="description" content="Internt familjeträd med enkel inloggning och dynamisk visualization." />
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#12182b; --muted:#8ea0b6; --accent:#5cc8ff; --good:#6be675; --warn:#ffcc66; --danger:#ff6b6b;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;background:var(--bg);color:#e8eef6}
+    a{color:var(--accent)}
+    .wrap{min-height:100svh;display:grid;grid-template-rows:auto 1fr}
+    header{display:flex;align-items:center;gap:.75rem;padding:1rem 1.25rem;background:linear-gradient(180deg,#12182b,#0f1425);box-shadow:0 2px 12px rgba(0,0,0,.35);position:sticky;top:0;z-index:10}
+    header h1{font-size:1.05rem;margin:0;font-weight:600;letter-spacing:.3px}
+    header .spacer{flex:1}
+    header button, .btn{background:#1a2340;color:#e8eef6;border:1px solid #2a3358;border-radius:12px;padding:.55rem .9rem;font-weight:600;cursor:pointer}
+    header button:hover, .btn:hover{border-color:#3b4570}
+    .login-card{max-width:380px;margin:8svh auto;padding:1.25rem;border:1px solid #2a3358;border-radius:16px;background:radial-gradient(1200px 400px at -20% -10%,#1d2748 0%,#0f1425 70%);box-shadow:0 10px 30px rgba(0,0,0,.4)}
+    .login-card h2{margin:.2rem 0 1rem 0;font-size:1.25rem}
+    .row{display:grid;gap:.6rem;margin:.7rem 0}
+    label{font-size:.9rem;color:var(--muted)}
+    input[type="text"],input[type="password"],input[type="file"],select,textarea{width:100%;padding:.6rem .7rem;border:1px solid #2a3358;border-radius:12px;background:#0f1631;color:#e8eef6}
+
+    .grid{display:grid;grid-template-columns:300px 1fr;gap:1rem;padding:1rem}
+    .panel{background:#0f1426;border:1px solid #232c4b;border-radius:16px;padding:1rem;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+    .panel h3{margin:.2rem 0 1rem 0;font-size:1rem;color:#cfe2ff}
+
+    .controls{display:grid;gap:1rem}
+    .subtle{font-size:.85rem;color:var(--muted)}
+    .inline{display:flex;gap:.5rem;align-items:center}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+    .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
+    .tag{font-size:.75rem;background:#1a2340;border:1px solid #2a3358;border-radius:999px;padding:.2rem .5rem;color:#cfe2ff}
+
+    #cy{height:calc(100svh - 82px);width:100%;border-radius:16px;border:1px solid #232c4b;background:radial-gradient(1200px 600px at 10% -10%,#151c36 0%,#0b1020 60%)}
+
+    .legend{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem}
+
+    .footer-tools{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem}
+
+    .hint{font-size:.8rem;color:var(--muted)}
+
+    .hidden{display:none !important}
+
+    @media (max-width: 900px){
+      .grid{grid-template-columns:1fr}
+      #cy{height:60svh}
+    }
+  </style>
+  <!-- Libraries (CDN) -->
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.umd.min.js"></script>
+  <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Mitt Familjeträd</h1>
+      <span class="tag" id="statusTag">Privat (lokalt)</span>
+      <div class="spacer"></div>
+      <button id="exportBtn" class="hidden">Exportera JSON</button>
+      <button id="importBtn" class="hidden">Importera JSON</button>
+      <input type="file" id="importFile" accept="application/json" class="hidden" />
+      <button id="resetBtn" class="hidden" title="Rensa allt (lokalt)">Nollställ</button>
+      <button id="logoutBtn" class="hidden">Logga ut</button>
+    </header>
+
+    <!-- LOGIN VIEW -->
+    <main id="loginView" class="login-card">
+      <h2>Inloggning (endast du)</h2>
+      <p class="subtle">Första uppsättningen kan vara <strong>admin / admin</strong>. Detta är endast en <em>visuell</em> spärr för GitHub Pages (ingen riktig säkerhet).</p>
+      <div class="row">
+        <label>Användarnamn</label>
+        <input id="username" type="text" placeholder="t.ex. admin" />
+      </div>
+      <div class="row">
+        <label>Lösenord</label>
+        <input id="password" type="password" placeholder="t.ex. admin" />
+      </div>
+      <div class="row inline">
+        <button id="loginBtn" class="btn">Logga in</button>
+        <span class="hint">Tips: ändra användare/lösen i koden eller i Inställningar här nedan efter inloggning.</span>
+      </div>
+    </main>
+
+    <!-- APP VIEW -->
+    <main id="appView" class="grid hidden">
+      <section class="panel">
+        <h3>Personer & relationer</h3>
+        <div class="controls">
+          <div class="row">
+            <label>Lägg till person</label>
+            <div class="two">
+              <input id="personName" type="text" placeholder="Namn" />
+              <select id="personGender">
+                <option value="unknown">Kön okänt</option>
+                <option value="female">Kvinna</option>
+                <option value="male">Man</option>
+                <option value="other">Annan</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>Bild (valfritt)</label>
+              <input id="personImage" type="file" accept="image/*" />
+            </div>
+            <div class="inline">
+              <button id="addPersonBtn" class="btn">Spara person</button>
+              <span class="hint">Sparas lokalt i din webbläsare.</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <label>Snabb-prompt för relation</label>
+            <div class="three">
+              <select id="relType">
+                <option value="father">far till …</option>
+                <option value="mother">mor till …</option>
+                <option value="son">son till …</option>
+                <option value="daughter">dotter till …</option>
+              </select>
+              <select id="relA"></select>
+              <select id="relB"></select>
+            </div>
+            <p class="hint">Välj två personer beroende på relationstyp. Ex: <em>far till</em> (A = far, B = barn). <em>son/dotter till</em> (A = barn, B = förälder).</p>
+            <button id="addRelBtn" class="btn">Lägg till relation</button>
+          </div>
+
+          <div class="legend">
+            <span class="tag">⬤ Man</span>
+            <span class="tag" style="border-color:#f59ecb;color:#ffd6ea">⬤ Kvinna</span>
+            <span class="tag">⬤ Okänt</span>
+            <span class="tag">⟶ Förälder → Barn</span>
+          </div>
+
+          <div class="footer-tools">
+            <button id="layoutBtn" class="btn">Om-layout</button>
+            <button id="fitBtn" class="btn">Centrera/Zooma till trädet</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div id="cy"></div>
+      </section>
+    </main>
+  </div>
+
+<script>
+  // ---- Enkel "inloggning" (klient-sidan, ingen säkerhet) ----
+  const DEFAULT_USER = 'admin';
+  const DEFAULT_PASS = 'admin';
+  const LS_KEY_LOGIN = 'ft_login_ok_v1';
+  const LS_KEY_DATA  = 'ft_data_v1';
+
+  const $ = sel => document.querySelector(sel);
+
+  const loginView = $('#loginView');
+  const appView   = $('#appView');
+  const statusTag = $('#statusTag');
+
+  function setLoggedIn(ok){
+    if(ok){
+      loginView.classList.add('hidden');
+      appView.classList.remove('hidden');
+      $('#logoutBtn').classList.remove('hidden');
+      $('#exportBtn').classList.remove('hidden');
+      $('#importBtn').classList.remove('hidden');
+      $('#resetBtn').classList.remove('hidden');
+      statusTag.textContent = 'Privat (lagrat lokalt)';
+    }else{
+      loginView.classList.remove('hidden');
+      appView.classList.add('hidden');
+      $('#logoutBtn').classList.add('hidden');
+      $('#exportBtn').classList.add('hidden');
+      $('#importBtn').classList.add('hidden');
+      $('#resetBtn').classList.add('hidden');
+      statusTag.textContent = 'Privat (låst)';
+    }
+  }
+
+  $('#loginBtn').addEventListener('click', () => {
+    const u = $('#username').value.trim();
+    const p = $('#password').value;
+    if((u===DEFAULT_USER && p===DEFAULT_PASS) || localStorage.getItem('FT_USER_'+u) === p){
+      localStorage.setItem(LS_KEY_LOGIN, '1');
+      setLoggedIn(true); initApp();
+    }else{
+      alert('Fel inloggning. Testa admin/admin eller lägg in egna i koden.');
+    }
+  });
+
+  $('#logoutBtn').addEventListener('click', () => {
+    localStorage.removeItem(LS_KEY_LOGIN);
+    setLoggedIn(false);
+  });
+
+  // ---- Data-modell ----
+  /**
+   * data = {
+   *   people: { id: {id, name, gender, photoDataUrl}, ... },
+   *   relations: [ {from, to, type:'parent'|'father'|'mother'}, ... ]
+   * }
+   */
+  function loadData(){
+    try{ return JSON.parse(localStorage.getItem(LS_KEY_DATA)) || {people:{}, relations:[]}; }
+    catch{ return {people:{}, relations:[]}; }
+  }
+  function saveData(d){ localStorage.setItem(LS_KEY_DATA, JSON.stringify(d)); }
+
+  // ---- UI/Graph ----
+  let data = null;
+  let cy = null;
+
+  function initApp(){
+    data = loadData();
+    mountSelects();
+    buildGraph();
+  }
+
+  function uid(){ return 'p_'+Math.random().toString(36).slice(2,10); }
+
+  // Person hantering
+  $('#addPersonBtn').addEventListener('click', async () => {
+    const name = $('#personName').value.trim();
+    const gender = $('#personGender').value;
+    if(!name){ alert('Ange ett namn.'); return; }
+    let photoDataUrl = '';
+    const file = $('#personImage').files?.[0];
+    if(file){
+      photoDataUrl = await fileToDataURL(file);
+    }
+    const id = uid();
+    data.people[id] = { id, name, gender, photoDataUrl };
+    saveData(data);
+    $('#personName').value='';
+    $('#personImage').value='';
+    mountSelects();
+    addNodeToGraph(data.people[id]);
+  });
+
+  function fileToDataURL(file){
+    return new Promise((resolve,reject)=>{
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Relationer via prompt/dropdowns
+  function relLabels(){
+    return {
+      father: 'far till',
+      mother: 'mor till',
+      son: 'son till',
+      daughter: 'dotter till'
+    };
+  }
+
+  function mountSelects(){
+    const opts = Object.values(loadData().people)
+      .sort((a,b)=>a.name.localeCompare(b.name))
+      .map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    $('#relA').innerHTML = '<option value="">– välj –</option>' + opts;
+    $('#relB').innerHTML = '<option value="">– välj –</option>' + opts;
+  }
+
+  $('#addRelBtn').addEventListener('click', () => {
+    const type = $('#relType').value; // father|mother|son|daughter
+    const a = $('#relA').value; // id
+    const b = $('#relB').value; // id
+    if(!a || !b || a===b){ alert('Välj två olika personer.'); return; }
+    let parentId, childId;
+    if(type==='father' || type==='mother'){
+      parentId = a; childId = b;
+      // sätt kön på föräldern om okänt
+      if(type==='father' && data.people[parentId].gender==='unknown') data.people[parentId].gender='male';
+      if(type==='mother' && data.people[parentId].gender==='unknown') data.people[parentId].gender='female';
+    } else { // son|daughter
+      parentId = b; childId = a;
+      // sätt kön på barnet
+      if(type==='son') data.people[childId].gender='male';
+      if(type==='daughter') data.people[childId].gender='female';
+    }
+    // Lägg kant (parent -> child) om den inte finns
+    if(!data.relations.some(r=>r.from===parentId && r.to===childId)){
+      const rType = (type==='father')?'father':(type==='mother')?'mother':'parent';
+      data.relations.push({from: parentId, to: childId, type: rType});
+      saveData(data);
+      addEdgeToGraph({from: parentId, to: childId, type: rType});
+      layoutGraph();
+    }
+  });
+
+  // Export/Import/Reset
+  $('#exportBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(loadData(), null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'familjetrad.json'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  });
+
+  $('#importBtn').addEventListener('click', () => $('#importFile').click());
+  $('#importFile').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    const text = await file.text();
+    try{
+      const obj = JSON.parse(text);
+      if(!obj.people || !obj.relations) throw new Error('Fel format');
+      localStorage.setItem(LS_KEY_DATA, JSON.stringify(obj));
+      data = obj; buildGraph(); mountSelects();
+    }catch(err){ alert('Kunde inte importera: '+err.message); }
+    e.target.value='';
+  });
+
+  $('#resetBtn').addEventListener('click', () => {
+    if(confirm('Detta rensar alla lokala data. Är du säker?')){
+      localStorage.removeItem(LS_KEY_DATA); data = loadData(); buildGraph(); mountSelects();
+    }
+  });
+
+  // ---- Cytoscape setup ----
+  function nodeStyleByGender(g){
+    if(g==='male')   return { 'border-color':'#6be675', 'background-color':'#0e1a34' };
+    if(g==='female') return { 'border-color':'#f59ecb', 'background-color':'#28122a' };
+    return { 'border-color':'#5cc8ff', 'background-color':'#11203a' };
+  }
+
+  function buildGraph(){
+    const elements = [];
+    const people = Object.values(data.people);
+    for(const p of people){
+      const style = nodeStyleByGender(p.gender);
+      elements.push({
+        data: { id: p.id, label: p.name, photo: p.photoDataUrl||'' },
+        classes: p.gender
+      });
+    }
+    for(const r of data.relations){
+      elements.push({ data: { id: r.from+'=>'+r.to, source: r.from, target: r.to, type: r.type } });
+    }
+
+    if(cy) cy.destroy();
+    cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements,
+      style: [
+        { selector: 'node', style: {
+            'shape':'round-rectangle',
+            'width': 'label', 'height': 'label',
+            'padding':'12px',
+            'border-width':2,
+            'label':'data(label)',
+            'font-size':12,
+            'text-wrap':'wrap',
+            'text-max-width':120,
+            'text-valign':'bottom',
+            'text-margin-y':8,
+            'background-color':'#11203a',
+            'border-color':'#5cc8ff',
+            'background-image':'data(photo)',
+            'background-fit':'cover cover',
+            'background-clip':'node',
+          }
+        },
+        { selector: 'node.male', style: {'border-color':'#6be675','background-color':'#0e1a34'} },
+        { selector: 'node.female', style: {'border-color':'#f59ecb','background-color':'#28122a'} },
+        { selector: 'edge', style: {
+            'curve-style':'bezier',
+            'control-point-step-size':40,
+            'line-color':'#6b7da6',
+            'target-arrow-color':'#6b7da6',
+            'width':2,
+            'target-arrow-shape':'triangle'
+          }
+        },
+        { selector: 'edge[type="father"]', style: { 'line-style':'solid' } },
+        { selector: 'edge[type="mother"]', style: { 'line-style':'dashed' } },
+      ],
+      layout: { name: 'dagre', rankDir:'TB', nodeSep: 40, rankSep: 80, edgeSep: 20 }
+    });
+
+    cy.on('tap', 'node', (evt) => {
+      const n = evt.target; const id=n.id();
+      const p = data.people[id];
+      const newName = prompt('Ändra namn för '+p.name+':', p.name);
+      if(newName){ p.name = newName; saveData(data); n.data('label', newName); }
+    });
+
+    cy.on('cxttap', 'node', async (evt) => {
+      // Högerklick / långtryck -> byt bild
+      const id = evt.target.id();
+      const fileInput = document.createElement('input');
+      fileInput.type='file'; fileInput.accept='image/*';
+      fileInput.onchange = async (e)=>{
+        const f=e.target.files?.[0]; if(!f) return;
+        const url = await fileToDataURL(f);
+        data.people[id].photoDataUrl = url; saveData(data);
+        evt.target.data('photo', url);
+      }
+      fileInput.click();
+    });
+
+    // Mus/touch wheel zoom fix för mobil
+    cy.userZoomingEnabled(true); cy.userPanningEnabled(true);
+  }
+
+  function addNodeToGraph(p){
+    const el = { data:{ id:p.id, label:p.name, photo:p.photoDataUrl||'' }, classes:p.gender };
+    cy.add(el);
+    layoutGraph();
+  }
+  function addEdgeToGraph(r){
+    cy.add({ data:{ id:r.from+'=>'+r.to, source:r.from, target:r.to, type:r.type } });
+  }
+
+  function layoutGraph(){
+    const options = { name:'dagre', rankDir:'TB', nodeSep:40, rankSep:80, edgeSep:20, animate:true, animationDuration:450 };
+    cy.layout(options).run();
+  }
+
+  $('#layoutBtn').addEventListener('click', layoutGraph);
+  $('#fitBtn').addEventListener('click', () => cy.fit(undefined, 50));
+
+  // Start
+  (function start(){
+    const logged = localStorage.getItem(LS_KEY_LOGIN) === '1';
+    setLoggedIn(logged);
+    if(logged) initApp();
+  })();
+</script>
+</body>
+</html>
