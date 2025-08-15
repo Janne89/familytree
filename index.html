@@ -1,23 +1,23 @@
 <!doctype html>
 <html lang="sv">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Mitt Familjeträd</title>
-<style>
-  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;background:#0b1020;color:#e8eef6}
-  .wrap{padding:1rem}
-  .hidden{display:none!important}
-  .disabled{opacity:.6}
-  .row{display:grid;gap:.5rem;margin:.75rem 0}
-  input,select,button{padding:.5rem;border-radius:.5rem;border:1px solid #2a3358;background:#0f1631;color:#e8eef6}
-  button{background:#1a2340;cursor:pointer}
-  #cy{height:60vh;border:1px solid #232c4b;border-radius:12px;margin-top:1rem;background:#0b1020}
-  .note{font-size:.85rem;color:#9fb0c6}
-</style>
-<script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.umd.min.js"></script>
-<script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
-<script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mitt Familjeträd</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;background:#0b1020;color:#e8eef6}
+    .wrap{padding:1rem}
+    .hidden{display:none!important}
+    .disabled{opacity:.6}
+    .row{display:grid;gap:.5rem;margin:.75rem 0}
+    input,select,button{padding:.5rem;border-radius:.5rem;border:1px solid #2a3358;background:#0f1631;color:#e8eef6}
+    button{background:#1a2340;cursor:pointer}
+    #cy{height:60vh;border:1px solid #232c4b;border-radius:12px;margin-top:1rem;background:#0b1020}
+    .note{font-size:.85rem;color:#9fb0c6}
+  </style>
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.umd.min.js"></script>
+  <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -41,7 +41,7 @@
       </select>
       <input id="personImage" type="file" accept="image/*" />
       <button id="addPersonBtn">Spara person</button>
-      <div class="note">Namn måste vara unikt (skiljer på stora/små bokstäver ignoreras).</div>
+      <div class="note">Namnet måste vara unikt (jämförs utan hänsyn till stora/små bokstäver).</div>
     </div>
 
     <h2>Lägg till relation</h2>
@@ -80,12 +80,8 @@ function saveData(){ localStorage.setItem(LS_KEY_DATA, JSON.stringify(data)); }
 function uid(){ return 'p_'+Math.random().toString(36).slice(2,10); }
 function fileToDataURL(file){ return new Promise(res=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(file); }); }
 
-// ---- Register dagre layout (säkerställ att pluginen är aktiv) ----
-try{
-  if (window.cytoscape && window.cytoscapeDagre && window.cytoscape.use) {
-    window.cytoscape.use(window.cytoscapeDagre);
-  }
-}catch(e){ console.warn('Kunde inte registrera cytoscape-dagre', e); }
+// ---- Registrera dagre (viktigt för layout) ----
+try{ if(window.cytoscape && window.cytoscapeDagre){ window.cytoscape.use(window.cytoscapeDagre); } }catch(e){ console.warn('dagre-reg misslyckades', e); }
 
 // ---- Login ----
 $('#loginBtn').onclick=()=>{
@@ -124,9 +120,7 @@ function updateRelationUIState(){
   cont.classList.toggle('disabled', !has2);
   document.getElementById('addRelBtn').disabled = !has2 || !both;
 }
-['relA','relB','relType'].forEach(id=>{
-  document.getElementById(id).addEventListener('change', updateRelationUIState);
-});
+['relA','relB','relType'].forEach(id=>{ document.getElementById(id).addEventListener('change', updateRelationUIState); });
 
 // ---- Person ----
 $('#addPersonBtn').onclick = async ()=>{
@@ -144,30 +138,28 @@ $('#addPersonBtn').onclick = async ()=>{
   const id = uid();
   data.people[id] = { id, name, gender, photoDataUrl };
   saveData();
-  // reset
-  $('#personName').value=''; $('#personGender').value=''; $('#personImage').value='';
-  // UI
+
+  // Bygg om graf + UI
+  buildGraph();
   mountSelects();
-  addNodeToGraph(data.people[id]);
   updateRelationUIState();
-  if(cy) cy.fit(undefined, 50);
+  cy && cy.fit(undefined, 50);
+
+  // reset inputs
+  $('#personName').value=''; $('#personGender').value=''; $('#personImage').value='';
 };
 
 // ---- Relation ----
 $('#addRelBtn').onclick = () => {
   const type = $('#relType').value; // father|mother|son|daughter
-  const a = $('#relA').value;
-  const b = $('#relB').value;
+  const a = $('#relA').value; const b = $('#relB').value;
   if (!a || !b || a === b) { alert('Välj två olika personer'); return; }
 
   let parentId, childId, edgeLabel = '';
-  if (type === 'father' || type === 'mother') {
-    parentId = a; childId = b; edgeLabel = (type === 'father') ? 'far' : 'mor';
-  } else {
-    parentId = b; childId = a; edgeLabel = 'förälder';
-  }
+  if (type === 'father' || type === 'mother') { parentId = a; childId = b; edgeLabel = (type === 'father') ? 'far' : 'mor'; }
+  else { parentId = b; childId = a; edgeLabel = 'förälder'; }
 
-  // Sätt kön där det är logiskt
+  // autokön där det är logiskt
   if (type === 'father')   data.people[parentId].gender = 'male';
   if (type === 'mother')   data.people[parentId].gender = 'female';
   if (type === 'son')      data.people[childId].gender = 'male';
@@ -180,23 +172,14 @@ $('#addRelBtn').onclick = () => {
     data.relations.push(rel);
     saveData();
 
-    // lägg till i grafen
-    addEdgeToGraph(rel);
-
-    // uppdatera könsklass på noder
-    const pe = cy.getElementById(parentId);
-    const ce = cy.getElementById(childId);
-    if (pe) { pe.removeClass('male female other unknown'); pe.addClass(data.people[parentId].gender || 'unknown'); }
-    if (ce) { ce.removeClass('male female other unknown'); ce.addClass(data.people[childId].gender || 'unknown'); }
-
-    layoutGraph();
-    cy.fit(undefined, 50);
+    // Robust: Bygg om hela grafen så kanten garanterat syns
+    buildGraph();
+    cy && cy.fit(undefined, 50);
 
     // reset val + lista
     $('#relA').value = ''; $('#relB').value = '';
     updateRelationUIState();
     renderRelations();
-    alert('Relation sparad');
   } else {
     alert('Relationen finns redan');
   }
@@ -240,9 +223,9 @@ function buildGraph(){
     layout:{ name:'dagre', rankDir:'TB', nodeSep:40, rankSep:80, edgeSep:20 }
   });
 }
-function addNodeToGraph(p){ cy.add({ data:{ id:p.id, label:p.name, photo:p.photoDataUrl||'' }, classes:(p.gender||'unknown') }); layoutGraph(); }
-function addEdgeToGraph(r){ cy.add({ data:{ id:r.from+'=>'+r.to, source:r.from, target:r.to, type:r.type, label: r.label || '' } }); }
-function layoutGraph(){ cy.layout({ name:'dagre', rankDir:'TB', nodeSep:40, rankSep:80, edgeSep:20, animate:true, animationDuration:350 }).run(); }
+function addNodeToGraph(p){ /* ej använd längre; vi rebuildar */ }
+function addEdgeToGraph(r){ /* ej använd längre; vi rebuildar */ }
+function layoutGraph(){ if(!cy) return; cy.layout({ name:'dagre', rankDir:'TB', nodeSep:40, rankSep:80, edgeSep:20, animate:true, animationDuration:350 }).run(); }
 
 function renderRelations(){
   const box = document.getElementById('relationsList');
