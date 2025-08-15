@@ -5,204 +5,207 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Mitt Familjeträd</title>
 <style>
-/* Kortad för enkelhet */
-.hidden{display:none!important}
-.disabled{opacity:.6;pointer-events:none}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;background:#0b1020;color:#e8eef6}
+  .wrap{padding:1rem}
+  .hidden{display:none!important}
+  .disabled{opacity:.6;pointer-events:none}
+  .row{display:grid;gap:.5rem;margin:.75rem 0}
+  input,select,button{padding:.5rem;border-radius:.5rem;border:1px solid #2a3358;background:#0f1631;color:#e8eef6}
+  button{background:#1a2340;cursor:pointer}
+  #cy{height:60vh;border:1px solid #232c4b;border-radius:12px;margin-top:1rem;background:#0b1020}
 </style>
 <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.umd.min.js"></script>
 <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
 <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 </head>
 <body>
-<div id="loginView">
-  <input id="username" placeholder="användare" />
-  <input id="password" type="password" placeholder="lösen" />
-  <button id="loginBtn">Logga in</button>
-</div>
-<div id="appView" class="hidden">
-  <h3>Lägg till person</h3>
-  <input id="personName" placeholder="Namn" />
-  <select id="personGender" required>
-    <option value="">Välj kön</option>
-    <option value="male">Man</option>
-    <option value="female">Kvinna</option>
-    <option value="other">Annan</option>
-  </select>
-  <input id="personImage" type="file" accept="image/*" />
-  <button id="addPersonBtn">Spara person</button>
-  
-  <div id="relationContainer" class="disabled">
-    <h3>Lägg till relation</h3>
-    <!-- Ordning: Person A, Relation, Person B -->
-    <select id="relA"></select>
-    <select id="relType">
-      <option value="father">far till</option>
-      <option value="mother">mor till</option>
-      <option value="son">son till</option>
-      <option value="daughter">dotter till</option>
-    </select>
-    <select id="relB"></select>
-    <button id="addRelBtn" disabled>Spara relation</button>
+<div class="wrap">
+  <!-- Login -->
+  <div id="loginView">
+    <div class="row"><input id="username" placeholder="användare (admin)" /></div>
+    <div class="row"><input id="password" type="password" placeholder="lösen (admin)" /></div>
+    <button id="loginBtn">Logga in</button>
   </div>
-  
-  <div id="cy" style="height:60vh;"></div>
-</div> style="height:60vh;"></div>
+
+  <!-- App -->
+  <div id="appView" class="hidden">
+    <h2>Lägg till person</h2>
+    <div class="row">
+      <input id="personName" placeholder="Namn" />
+      <select id="personGender" required>
+        <option value="" selected disabled>Välj kön *</option>
+        <option value="male">Man</option>
+        <option value="female">Kvinna</option>
+        <option value="other">Annan</option>
+      </select>
+      <input id="personImage" type="file" accept="image/*" />
+      <button id="addPersonBtn">Spara person</button>
+    </div>
+
+    <h2>Lägg till relation</h2>
+    <div id="relationContainer" class="row disabled">
+      <!-- Ordning: Person A – Relation – Person B -->
+      <select id="relA"></select>
+      <select id="relType">
+        <option value="father">far till</option>
+        <option value="mother">mor till</option>
+        <option value="son">son till</option>
+        <option value="daughter">dotter till</option>
+      </select>
+      <select id="relB"></select>
+      <button id="addRelBtn" disabled>Spara relation</button>
+    </div>
+
+    <div id="cy"></div>
+  </div>
 </div>
+
 <script>
+// ---- Konstanter & hjälp ----
 const DEFAULT_USER='admin',DEFAULT_PASS='admin';
 const LS_KEY_LOGIN='ft_login_ok_v1',LS_KEY_DATA='ft_data_v1';
 const $=s=>document.querySelector(s);
-let data,cy;
+let data=null, cy=null;
 
-function loadData(){try{return JSON.parse(localStorage.getItem(LS_KEY_DATA))||{people:{},relations:[]}}catch{return{people:{},relations:[]}}}
-function saveData(){localStorage.setItem(LS_KEY_DATA,JSON.stringify(data))}
+function loadData(){
+  try{ return JSON.parse(localStorage.getItem(LS_KEY_DATA)) || {people:{}, relations:[]}; }
+  catch{ return {people:{}, relations:[]}; }
+}
+function saveData(){ localStorage.setItem(LS_KEY_DATA, JSON.stringify(data)); }
+function uid(){ return 'p_'+Math.random().toString(36).slice(2,10); }
+function fileToDataURL(file){ return new Promise(res=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(file); }); }
 
+// ---- Login ----
 $('#loginBtn').onclick=()=>{
- if($('#username').value===DEFAULT_USER&&$('#password').value===DEFAULT_PASS){
-  localStorage.setItem(LS_KEY_LOGIN,'1');
-  $('#loginView').classList.add('hidden');
-  $('#appView').classList.remove('hidden');
-  initApp();
- } else alert('Fel inloggning');
-}
-
-function initApp(){
- data=loadData();
- mountSelects();
- buildGraph();
- updateRelationUIState();
-}
-
-$('#addPersonBtn').onclick=async()=>{
- const name=$('#personName').value.trim();
- const gender=$('#personGender').value;
- if(!name) return alert('Ange namn');
- if(!gender) return alert('Välj kön');
- let photoDataUrl='';
- if($('#personImage').files[0]) photoDataUrl=await fileToDataURL($('#personImage').files[0]);
- const id='p_'+Math.random().toString(36).slice(2,10);
- data.people[id]={id,name,gender,photoDataUrl};
- saveData();
- $('#personName').value='';$('#personGender').value='';$('#personImage').value='';
- mountSelects();
- addNodeToGraph(data.people[id]);
- updateRelationUIState();
- if(cy) cy.fit(undefined,50);
+  if($('#username').value===DEFAULT_USER && $('#password').value===DEFAULT_PASS){
+    localStorage.setItem(LS_KEY_LOGIN,'1');
+    $('#loginView').classList.add('hidden');
+    $('#appView').classList.remove('hidden');
+    initApp();
+  } else alert('Fel inloggning (testa admin/admin)');
 };
- saveData();
- $('#personName').value='';$('#personGender').value='';$('#personImage').value='';
- mountSelects();
- addNodeToGraph(data.people[id]);
- updateRelationUIState();
+
+// ---- Init ----
+function initApp(){
+  data = loadData();
+  mountSelects();
+  buildGraph();
+  updateRelationUIState();
+}
+
+// ---- UI state ----
+function mountSelects(){
+  const opts = Object.values(data.people)
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  $('#relA').innerHTML = '<option value="">– välj person –</option>' + opts;
+  $('#relB').innerHTML = '<option value="">– välj person –</option>' + opts;
 }
 
 function updateRelationUIState(){
- const c=Object.keys(data.people).length;
- const btn=document.getElementById('addRelBtn');
- const a=document.getElementById('relA').value;
- const b=document.getElementById('relB').value;
- const both=a && b && a!==b;
- if(c<2){
-   document.getElementById('relationContainer').classList.add('disabled');
-   btn.disabled=true;
- } else {
-   document.getElementById('relationContainer').classList.remove('disabled');
-   btn.disabled=!both;
- }
+  const has2 = Object.keys(data.people).length >= 2;
+  const a = $('#relA').value, b = $('#relB').value;
+  const both = a && b && a!==b;
+  const cont = $('#relationContainer');
+  cont.classList.toggle('disabled', !has2);
+  $('#addRelBtn').disabled = !has2 || !both;
 }
+['relA','relB','relType'].forEach(id=>{
+  document.addEventListener('change', (e)=>{ if(e.target && e.target.id===id) updateRelationUIState(); });
+});
 
-function mountSelects(){
- const opts=Object.values(data.people).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
- document.getElementById('relA').innerHTML='<option value="">–välj–</option>'+opts;
- document.getElementById('relB').innerHTML='<option value="">–välj–</option>'+opts;
- updateRelationUIState();
-}">${p.name}</option>`).join('');
- $('#relA').innerHTML='<option value="">–välj–</option>'+opts;
- $('#relB').innerHTML='<option value="">–välj–</option>'+opts;
-}
-
-$('#addRelBtn').onclick=()=>{
- const type=$('#relType').value;
- const a=$('#relA').value;
- const b=$('#relB').value;
- if(!a||!b||a===b) return alert('Välj två olika personer');
- let parentId,childId;
- if(type==='father'||type==='mother'){ parentId=a; childId=b; }
- else { parentId=b; childId=a; }
- // sätt kön baserat på relationen när möjligt
- if(type==='father') data.people[parentId].gender='male';
- if(type==='mother') data.people[parentId].gender='female';
- if(type==='son') data.people[childId].gender='male';
- if(type==='daughter') data.people[childId].gender='female';
- if(!data.relations.some(r=>r.from===parentId&&r.to===childId)){
-   data.relations.push({from:parentId,to:childId,type:(type==='father'||type==='mother')?type:'parent'});
-   saveData();
-   addEdgeToGraph({from:parentId,to:childId,type:(type==='father'||type==='mother')?type:'parent'});
-   // uppdatera könsklass i grafen
-   const pe=cy.getElementById(parentId); const ce=cy.getElementById(childId);
-   if(pe){ pe.removeClass('male female other unknown'); pe.addClass(data.people[parentId].gender||'unknown'); }
-   if(ce){ ce.removeClass('male female other unknown'); ce.addClass(data.people[childId].gender||'unknown'); }
-   layoutGraph();
-   cy.fit(undefined,50);
-   $('#relA').value=''; $('#relB').value=''; updateRelationUIState();
-   alert('Relation sparad');
- } else {
-   alert('Relationen finns redan');
- }
-}else{parentId=b;childId=a;}
- if(!data.relations.some(r=>r.from===parentId&&r.to===childId)){
-  data.relations.push({from:parentId,to:childId,type});
+// ---- Person ----
+$('#addPersonBtn').onclick = async ()=>{
+  const name = $('#personName').value.trim();
+  const gender = $('#personGender').value;
+  if(!name){ alert('Ange namn'); return; }
+  if(!gender){ alert('Välj kön'); return; }
+  let photoDataUrl='';
+  const f = $('#personImage').files?.[0];
+  if(f) photoDataUrl = await fileToDataURL(f);
+  const id = uid();
+  data.people[id] = { id, name, gender, photoDataUrl };
   saveData();
-  addEdgeToGraph({from:parentId,to:childId,type});
-  layoutGraph();
- }
-}
+  // reset
+  $('#personName').value=''; $('#personGender').value=''; $('#personImage').value='';
+  // UI
+  mountSelects();
+  addNodeToGraph(data.people[id]);
+  updateRelationUIState();
+  if(cy) cy.fit(undefined, 50);
+};
 
-function fileToDataURL(file){return new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file)})}
+// ---- Relation ----
+$('#addRelBtn').onclick = ()=>{
+  const type = $('#relType').value; // father|mother|son|daughter
+  const a = $('#relA').value; const b = $('#relB').value;
+  if(!a || !b || a===b){ alert('Välj två olika personer'); return; }
+  let parentId, childId;
+  if(type==='father' || type==='mother'){ parentId=a; childId=b; }
+  else { parentId=b; childId=a; }
+  // sätt kön där det är logiskt
+  if(type==='father')   data.people[parentId].gender='male';
+  if(type==='mother')   data.people[parentId].gender='female';
+  if(type==='son')      data.people[childId].gender='male';
+  if(type==='daughter') data.people[childId].gender='female';
 
+  // lägg kant om den saknas
+  const exists = data.relations.some(r=>r.from===parentId && r.to===childId);
+  if(!exists){
+    const rType = (type==='father'||type==='mother') ? type : 'parent';
+    data.relations.push({from:parentId, to:childId, type:rType});
+    saveData();
+    addEdgeToGraph({from:parentId, to:childId, type:rType});
+
+    // uppdatera köns-klasser i grafen
+    const pe = cy.getElementById(parentId); const ce = cy.getElementById(childId);
+    if(pe){ pe.removeClass('male female other unknown'); pe.addClass(data.people[parentId].gender||'unknown'); }
+    if(ce){ ce.removeClass('male female other unknown'); ce.addClass(data.people[childId].gender||'unknown'); }
+
+    layoutGraph();
+    cy.fit(undefined,50);
+    // reset val
+    $('#relA').value=''; $('#relB').value=''; updateRelationUIState();
+  } else {
+    alert('Relationen finns redan');
+  }
+};
+
+// ---- Graph ----
 function buildGraph(){
- const elements=[];
- Object.values(data.people).forEach(p=>elements.push({data:{id:p.id,label:p.name,photo:p.photoDataUrl||''},classes:(p.gender||'unknown')}));
- data.relations.forEach(r=>elements.push({data:{id:r.from+'=>'+r.to,source:r.from,target:r.to,type:r.type}}));
- if(cy) cy.destroy();
- cy=cytoscape({
-  container:$('#cy'),
-  elements,
-  style:[
-    {selector:'node',style:{'label':'data(label)','font-size':12,'background-image':'data(photo)','background-fit':'cover cover','background-color':'#11203a','border-width':2,'border-color':'#5cc8ff','shape':'round-rectangle','padding':'10px'}},
-    {selector:'node.male',style:{'border-color':'#6be675','background-color':'#0e1a34'}},
-    {selector:'node.female',style:{'border-color':'#f59ecb','background-color':'#28122a'}},
-    {selector:'node.other',style:{'border-color':'#ffcc66','background-color':'#2a1f0e'}},
-    {selector:'node.unknown',style:{'border-color':'#5cc8ff','background-color':'#11203a'}},
-    {selector:'edge',style:{'width':2,'line-color':'#6b7da6','target-arrow-color':'#6b7da6','target-arrow-shape':'triangle','curve-style':'bezier','control-point-step-size':40}},
-    {selector:'edge[type="father"]',style:{'line-style':'solid'}},
-    {selector:'edge[type="mother"]',style:{'line-style':'dashed'}},
-  ],
-  layout:{name:'dagre'}
-});
-},classes:p.gender}));
- data.relations.forEach(r=>elements.push({data:{id:r.from+'=>'+r.to,source:r.from,target:r.to,type:r.type}}));
- if(cy) cy.destroy();
- cy=cytoscape({
-  container:$('#cy'),
-  elements,
-  style:[
-    {selector:'node',style:{'label':'data(label)','font-size':12,'background-image':'data(photo)','background-fit':'cover cover','background-color':'#11203a','border-width':2,'border-color':'#5cc8ff','shape':'round-rectangle','padding':'10px'}},
-    {selector:'node.male',style:{'border-color':'#6be675','background-color':'#0e1a34'}},
-    {selector:'node.female',style:{'border-color':'#f59ecb','background-color':'#28122a'}},
-    {selector:'node.other',style:{'border-color':'#ffcc66','background-color':'#2a1f0e'}},
-    {selector:'node.unknown',style:{'border-color':'#5cc8ff','background-color':'#11203a'}},
-    {selector:'edge',style:{'width':2,'line-color':'#6b7da6','target-arrow-color':'#6b7da6','target-arrow-shape':'triangle','curve-style':'bezier','control-point-step-size':40}},
-    {selector:'edge[type="father"]',style:{'line-style':'solid'}},
-    {selector:'edge[type="mother"]',style:{'line-style':'dashed'}},
-  ],
-  layout:{name:'dagre'}
-});
+  const elements=[];
+  for(const p of Object.values(data.people)){
+    elements.push({ data:{ id:p.id, label:p.name, photo:p.photoDataUrl||'' }, classes:(p.gender||'unknown') });
+  }
+  for(const r of data.relations){
+    elements.push({ data:{ id:r.from+'=>'+r.to, source:r.from, target:r.to, type:r.type } });
+  }
+  if(cy) cy.destroy();
+  cy = cytoscape({
+    container: document.getElementById('cy'),
+    elements,
+    style:[
+      {selector:'node', style:{ 'label':'data(label)','font-size':12,'text-wrap':'wrap','text-max-width':120,'background-image':'data(photo)','background-fit':'cover cover','background-color':'#11203a','border-width':2,'border-color':'#5cc8ff','shape':'round-rectangle','padding':'10px'}},
+      {selector:'node.male',   style:{'border-color':'#6be675','background-color':'#0e1a34'}},
+      {selector:'node.female', style:{'border-color':'#f59ecb','background-color':'#28122a'}},
+      {selector:'node.other',  style:{'border-color':'#ffcc66','background-color':'#2a1f0e'}},
+      {selector:'node.unknown',style:{'border-color':'#5cc8ff','background-color':'#11203a'}},
+      {selector:'edge', style:{ 'width':2,'line-color':'#6b7da6','target-arrow-color':'#6b7da6','target-arrow-shape':'triangle','curve-style':'bezier','control-point-step-size':40 }},
+      {selector:'edge[type="father"]', style:{ 'line-style':'solid' }},
+      {selector:'edge[type="mother"]', style:{ 'line-style':'dashed' }},
+    ],
+    layout:{ name:'dagre', rankDir:'TB', nodeSep:40, rankSep:80, edgeSep:20 }
+  });
 }
+function addNodeToGraph(p){ cy.add({ data:{ id:p.id, label:p.name, photo:p.photoDataUrl||'' }, classes:(p.gender||'unknown') }); layoutGraph(); }
+function addEdgeToGraph(r){ cy.add({ data:{ id:r.from+'=>'+r.to, source:r.from, target:r.to, type:r.type } }); }
+function layoutGraph(){ cy.layout({ name:'dagre', rankDir:'TB', nodeSep:40, rankSep:80, edgeSep:20, animate:true, animationDuration:350 }).run(); }
 
-function addNodeToGraph(p){cy.add({data:{id:p.id,label:p.name,photo:p.photoDataUrl||''},classes:p.gender});layoutGraph();}
-function addEdgeToGraph(r){cy.add({data:{id:r.from+'=>'+r.to,source:r.from,target:r.to,type:r.type}});}
-function layoutGraph(){cy.layout({name:'dagre'}).run();}
+// ---- Start ----
+(function start(){
+  const logged = localStorage.getItem(LS_KEY_LOGIN)==='1';
+  if(logged){ $('#loginView').classList.add('hidden'); $('#appView').classList.remove('hidden'); initApp(); }
+})();
 </script>
 </body>
 </html>
